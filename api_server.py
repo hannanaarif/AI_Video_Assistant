@@ -157,9 +157,9 @@ class RAGApiHandler(BaseHTTPRequestHandler):
 
 
 def run_api_server(port=8080):
-    server_address = ('', port)
+    server_address = ('0.0.0.0', port)
     httpd = HTTPServer(server_address, RAGApiHandler)
-    print(f"\n🚀 AI Video Assistant RAG API Server listening on port {port}...")
+    print(f"\n🚀 AI Video Assistant RAG API Server listening on 0.0.0.0:{port}...")
     print(f"👉 Endpoints: POST /api/analyze, POST /api/chat\n")
     try:
         httpd.serve_forever()
