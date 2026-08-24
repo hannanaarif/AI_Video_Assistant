@@ -1,6 +1,7 @@
 .env
 .venv/
 downloads/
+vector_db/
 __pycache__/
 *.pyc
 .DS_Store

@@ -8,13 +8,19 @@ from pydub import AudioSegment
 def ensure_ffmpeg_in_path():
     """Helper function to find system FFmpeg or imageio_ffmpeg binary and add it to os.environ['PATH']."""
     if shutil.which('ffmpeg') is not None:
-        return shutil.which('ffmpeg')
+        ffmpeg_path = shutil.which('ffmpeg')
+        AudioSegment.converter = ffmpeg_path
+        ffprobe_path = shutil.which('ffprobe') or ffmpeg_path
+        AudioSegment.ffprobe = ffprobe_path
+        return ffmpeg_path
     
     # Check .venv/bin or sys.prefix/bin
     sys_bin = os.path.join(sys.prefix, "bin")
     ffmpeg_in_sys_bin = os.path.join(sys_bin, "ffmpeg")
     if os.path.exists(ffmpeg_in_sys_bin):
         os.environ["PATH"] = sys_bin + os.path.pathsep + os.environ.get("PATH", "")
+        AudioSegment.converter = ffmpeg_in_sys_bin
+        AudioSegment.ffprobe = ffmpeg_in_sys_bin
         return ffmpeg_in_sys_bin
 
     try:
@@ -30,6 +36,8 @@ def ensure_ffmpeg_in_path():
                 pass
         target_dir = ffmpeg_dir if os.path.exists(symlink_path) else sys_bin
         os.environ["PATH"] = target_dir + os.path.pathsep + os.environ.get("PATH", "")
+        AudioSegment.converter = ffmpeg_exe
+        AudioSegment.ffprobe = ffmpeg_exe
         return ffmpeg_exe
     except Exception:
         return None
@@ -151,15 +159,35 @@ def download_youtube_audio(url: str) -> tuple[str, dict]:
     return audio_filename, meta
 
 def convert_to_wav(input_path: str) -> str:
-    """Convert any uploaded audio/video file to 16kHz mono WAV format using pydub."""
-    ffmpeg_location = get_ffmpeg_location()
-    if ffmpeg_location:
-        AudioSegment.converter = ffmpeg_location
-
+    """Convert any uploaded audio/video file to 16kHz mono WAV format directly using FFmpeg binary."""
+    ffmpeg_exe = get_ffmpeg_location() or "ffmpeg"
     output_path = os.path.splitext(input_path)[0] + "_converted.wav"
-    audio = AudioSegment.from_file(input_path)
-    audio = audio.set_channels(1).set_frame_rate(16000)
-    audio.export(output_path, format="wav")
+    
+    if input_path.lower().endswith(".wav") and os.path.exists(input_path) and os.path.getsize(input_path) > 10000:
+        return input_path
+
+    print(f"Converting local video/audio file '{os.path.basename(input_path)}' to WAV using FFmpeg...")
+    cmd = [
+        ffmpeg_exe,
+        "-y",
+        "-i", input_path,
+        "-ac", "1",
+        "-ar", "16000",
+        "-vn",
+        output_path
+    ]
+    
+    import subprocess
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if res.returncode != 0 or not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        print(f"[FFmpeg Direct Note] {res.stderr[:200]}")
+        try:
+            audio = AudioSegment.from_file(input_path)
+            audio = audio.set_channels(1).set_frame_rate(16000)
+            audio.export(output_path, format="wav")
+        except Exception as e:
+            raise RuntimeError(f"Audio conversion failed for '{os.path.basename(input_path)}': {e}")
+
     return output_path
 
 

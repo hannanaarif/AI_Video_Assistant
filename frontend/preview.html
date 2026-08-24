@@ -47,7 +47,9 @@
     // Application State
     const state = {
       phase: 'INITIAL', // 'INITIAL' | 'PROCESSING' | 'DASHBOARD'
+      activeTab: 'url', // 'url' | 'upload'
       youtubeUrl: '',
+      uploadedFile: null,
       language: 'english',
       selectedFile: null,
       isCollapsed: false,
@@ -101,7 +103,7 @@
       render();
     }
 
-    // Process & Analyze Video
+    // Process & Analyze YouTube Video
     async function handleAnalyzeVideo(sourceUrl, lang) {
       state.phase = 'PROCESSING';
       state.errorMsg = '';
@@ -148,8 +150,62 @@
       simulateDynamicAnalysis(sourceUrl, lang);
     }
 
+    // Process & Analyze Local Uploaded Video / Audio File
+    async function handleAnalyzeLocalFile(file, lang) {
+      if (!file) return;
+      state.phase = 'PROCESSING';
+      state.errorMsg = '';
+      state.processingStep = `Reading local file "${file.name}"...`;
+      render();
+
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        const filedata = e.target.result;
+        state.processingStep = `Uploading "${file.name}" to Python server...`;
+        render();
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: file.name, filedata: filedata, language: lang })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            state.backendConnected = true;
+            state.meetingData = {
+              title: data.title || file.name,
+              duration: "Full Local Audio/Video",
+              sourceUrl: file.name,
+              summary: parseListItems(data.summary),
+              actionItems: parseActionItemObjects(data.action_items),
+              keyDecisions: parseListItems(data.key_decisions),
+              openQuestions: parseListItems(data.open_questions)
+            };
+            state.messages = [{
+              id: 1,
+              sender: 'assistant',
+              text: `Hello! I've analyzed your local file **"${state.meetingData.title}"**.\n\nYou can ask me questions about the transcript, summary, action items, or technical topics!`,
+              timestamp: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+              citations: []
+            }];
+            state.phase = 'DASHBOARD';
+            render();
+            return;
+          }
+        } catch (err) {
+          console.log("Backend file upload error", err);
+        }
+
+        state.backendConnected = false;
+        simulateDynamicAnalysis(file.name, lang);
+      };
+      reader.readAsDataURL(file);
+    }
+
     function simulateDynamicAnalysis(sourceUrl, lang) {
-      let videoId = "Video";
+      let videoId = sourceUrl;
       if (sourceUrl.includes("v=")) {
         videoId = sourceUrl.split("v=")[1].split("&")[0];
       }
@@ -158,12 +214,12 @@
       setTimeout(() => { state.processingStep = "Extracting summary, decisions & action items..."; render(); }, 1600);
       setTimeout(() => {
         state.meetingData = {
-          title: `Analysis of YouTube Video (${videoId})`,
+          title: `Analysis of ${videoId}`,
           duration: "Full Transcript",
           sourceUrl: sourceUrl,
           summary: [
-            `Processed video source: ${sourceUrl}`,
-            `Transcribed speech audio using ${lang === 'hinglish' ? 'Sarvam AI' : 'OpenAI Whisper small model'}.`,
+            `Processed media source: ${sourceUrl}`,
+            `Transcribed speech audio using ${lang === 'hinglish' ? 'Sarvam AI' : 'OpenAI Whisper model'}.`,
             `Extracted meeting topics, key decisions, and action items automatically.`,
             `Indexed document chunks into Chroma DB vector store for context-bounded RAG query retrieval.`
           ],
@@ -181,7 +237,7 @@
         state.messages = [{
           id: 1,
           sender: 'assistant',
-          text: `Hello! I've processed your video **"${state.meetingData.title}"**.\n\n*(Note: Python backend server is currently offline. Start \`npm run dev\` in your terminal for live Whisper & RAG query processing.)*`,
+          text: `Hello! I've processed your media file **"${state.meetingData.title}"**.\n\n*(Note: Python backend server is currently offline. Start \`npm run dev\` in your terminal for live Whisper & RAG query processing.)*`,
           timestamp: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
           citations: []
         }];
@@ -251,8 +307,8 @@
 
       if (q.includes("topic") || q.includes("about") || q.includes("overview") || q.includes("what is this") || q.includes("subject")) {
         return {
-          text: `The topic of this video is **"${title}"**.\n\n### Summary of Topics:\n${state.meetingData.summary.map(s => `- ${s}`).join("\n")}`,
-          citations: [{ timestamp: "00:30 - 02:15", text: "Video introduction and main subject discussion." }]
+          text: `The topic of this media is **"${title}"**.\n\n### Summary of Topics:\n${state.meetingData.summary.map(s => `- ${s}`).join("\n")}`,
+          citations: [{ timestamp: "00:30 - 02:15", text: "Introduction and main subject discussion." }]
         };
       }
 
@@ -282,6 +338,20 @@
     function scrollToBottom() {
       const container = document.getElementById('messages-container');
       if (container) container.scrollTop = container.scrollHeight;
+    }
+
+    // Helper: Escaping HTML
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Helper: Simple Markdown formatting
+    function formatMarkdown(text) {
+      return text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br/>');
     }
 
     // Render Views
@@ -316,21 +386,49 @@
           <main class="w-full max-w-2xl my-auto space-y-6 py-6">
             <div class="space-y-2">
               <h1 class="text-3xl sm:text-4xl font-bold text-white tracking-tight">What video would you like to analyze?</h1>
-              <p class="text-gray-400 text-sm">Enter any YouTube URL to extract summaries, decisions, action items, and chat with transcript using RAG.</p>
+              <p class="text-sm text-gray-400 max-w-lg mx-auto">Paste a YouTube URL or upload a local video/audio file to extract transcripts, action items, summaries & chat with RAG.</p>
+            </div>
+
+            <!-- Mode Selector Tabs -->
+            <div class="flex items-center justify-center p-1 bg-[#212121] border border-[#383838] rounded-xl max-w-xs mx-auto text-xs font-medium">
+              <button id="tab-url-btn" type="button" class="flex-1 py-2 px-3 rounded-lg transition-all ${state.activeTab === 'url' ? 'bg-teal-600 text-white shadow-md' : 'text-gray-400 hover:text-white'}">
+                🔗 YouTube URL
+              </button>
+              <button id="tab-upload-btn" type="button" class="flex-1 py-2 px-3 rounded-lg transition-all ${state.activeTab === 'upload' ? 'bg-teal-600 text-white shadow-md' : 'text-gray-400 hover:text-white'}">
+                📁 Upload Local File
+              </button>
             </div>
 
             <form id="analyze-form" class="bg-[#2f2f2f] border border-[#383838] rounded-2xl p-5 shadow-2xl space-y-4 text-left">
-              <div>
-                <label class="block text-xs font-medium text-gray-400 mb-1">YouTube Video URL</label>
-                <input 
-                  id="youtube-url-input"
-                  type="url" 
-                  placeholder="https://www.youtube.com/watch?v=..." 
-                  value="${escapeHtml(state.youtubeUrl)}"
-                  required
-                  class="w-full pl-4 pr-4 py-3 bg-[#212121] border border-[#383838] rounded-xl text-sm text-white focus:outline-none focus:border-teal-500"
-                />
-              </div>
+              ${state.activeTab === 'url' ? `
+                <div>
+                  <label class="block text-xs font-medium text-gray-400 mb-1">YouTube Video URL</label>
+                  <input 
+                    id="youtube-url-input"
+                    type="url" 
+                    placeholder="https://www.youtube.com/watch?v=..." 
+                    value="${escapeHtml(state.youtubeUrl)}"
+                    required
+                    class="w-full pl-4 pr-4 py-3 bg-[#212121] border border-[#383838] rounded-xl text-sm text-white focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+              ` : `
+                <div>
+                  <label class="block text-xs font-medium text-gray-400 mb-1">Select Video or Audio File (.mp4, .mov, .mp3, .wav, .m4a)</label>
+                  <div id="file-dropzone" class="cursor-pointer border-2 border-dashed ${state.uploadedFile ? 'border-teal-500/60 bg-teal-950/20' : 'border-[#383838] hover:border-teal-500/50 bg-[#212121]'} rounded-xl p-6 text-center transition-all">
+                    <input id="local-file-input" type="file" accept="video/*,audio/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.m4a" class="hidden" />
+                    <div class="space-y-1">
+                      <div class="text-2xl">${state.uploadedFile ? '🎬' : '📁'}</div>
+                      <p class="text-xs text-white font-medium">
+                        ${state.uploadedFile ? escapeHtml(state.uploadedFile.name) : 'Click to browse or drag & drop video/audio file here'}
+                      </p>
+                      <p class="text-[10px] text-gray-400">
+                        ${state.uploadedFile ? (state.uploadedFile.size / (1024 * 1024)).toFixed(2) + ' MB' : 'Supports MP4, MOV, AVI, MP3, WAV, M4A'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              `}
 
               <div class="flex items-center justify-between gap-3 pt-2">
                 <div class="flex items-center space-x-2 bg-[#212121] px-3 py-2 border border-[#383838] rounded-xl text-xs">
@@ -503,15 +601,76 @@
 
     // Attach Event Listeners
     function attachEventListeners() {
+      const tabUrlBtn = document.getElementById('tab-url-btn');
+      const tabUploadBtn = document.getElementById('tab-upload-btn');
+
+      if (tabUrlBtn) {
+        tabUrlBtn.addEventListener('click', () => {
+          state.activeTab = 'url';
+          render();
+        });
+      }
+
+      if (tabUploadBtn) {
+        tabUploadBtn.addEventListener('click', () => {
+          state.activeTab = 'upload';
+          render();
+        });
+      }
+
+      const fileDropzone = document.getElementById('file-dropzone');
+      const localFileInput = document.getElementById('local-file-input');
+
+      if (fileDropzone && localFileInput) {
+        fileDropzone.addEventListener('click', () => {
+          localFileInput.click();
+        });
+
+        localFileInput.addEventListener('change', (e) => {
+          if (e.target.files && e.target.files[0]) {
+            state.uploadedFile = e.target.files[0];
+            render();
+          }
+        });
+
+        fileDropzone.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          fileDropzone.classList.add('border-teal-500');
+        });
+
+        fileDropzone.addEventListener('dragleave', (e) => {
+          e.preventDefault();
+          fileDropzone.classList.remove('border-teal-500');
+        });
+
+        fileDropzone.addEventListener('drop', (e) => {
+          e.preventDefault();
+          if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            state.uploadedFile = e.dataTransfer.files[0];
+            render();
+          }
+        });
+      }
+
       const analyzeForm = document.getElementById('analyze-form');
       if (analyzeForm) {
         analyzeForm.addEventListener('submit', (e) => {
           e.preventDefault();
-          const urlInput = document.getElementById('youtube-url-input');
           const langSelect = document.getElementById('language-select');
-          if (urlInput && urlInput.value) {
-            state.youtubeUrl = urlInput.value;
-            handleAnalyzeVideo(urlInput.value, langSelect ? langSelect.value : 'english');
+          const lang = langSelect ? langSelect.value : 'english';
+
+          if (state.activeTab === 'url') {
+            const urlInput = document.getElementById('youtube-url-input');
+            if (urlInput && urlInput.value) {
+              state.youtubeUrl = urlInput.value;
+              handleAnalyzeVideo(urlInput.value, lang);
+            }
+          } else {
+            if (state.uploadedFile) {
+              handleAnalyzeLocalFile(state.uploadedFile, lang);
+            } else {
+              alert("Please select a local video or audio file first!");
+            }
           }
         });
       }
@@ -521,6 +680,7 @@
           const url = btn.getAttribute('data-url');
           if (url) {
             state.youtubeUrl = url;
+            state.activeTab = 'url';
             handleAnalyzeVideo(url, 'english');
           }
         });
