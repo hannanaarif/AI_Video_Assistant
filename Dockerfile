@@ -9,14 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Explicitly copy requirements.txt first
-COPY requirements.txt /app/requirements.txt
+# Copy all repository source code
+COPY . /app/
 
 # Install dependencies from requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
-
-# Copy remaining project files
-COPY . /app/
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Create runtime directories
 RUN mkdir -p downloads vector_db
