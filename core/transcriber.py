@@ -6,7 +6,6 @@ from utils.audio_processor import ensure_ffmpeg_in_path
 
 ensure_ffmpeg_in_path()
 
-import whisper
 from pydub import AudioSegment
 
 
@@ -17,7 +16,6 @@ SARVAM_PIECE_SECONDS = 25
 
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
 
-
 SARVAM_API_KEY = os.getenv("SARVAM_API_KEY")
 SARVAM_STT_TRANSLATE_URL = "https://api.sarvam.ai/speech-to-text-translate"
 SARVAM_MODEL = os.getenv("SARVAM_STT_MODEL", "saaras:v2.5")
@@ -26,20 +24,33 @@ _model = None
 
 
 def load_model():
-
     global _model  
-
     if _model is None: 
-        print(f"Loading Whisper model: {WHISPER_MODEL} ...")
+        print(f"Loading local Whisper model: {WHISPER_MODEL} ...")
+        import whisper
         _model = whisper.load_model(WHISPER_MODEL) 
-        print("Whisper model loaded.")
+        print("Local Whisper model loaded.")
     return _model 
 
 
 def transcribe_chunk_whisper(chunk_path: str) -> str:
+    # Attempt OpenAI Whisper API first (0 MB RAM overhead)
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            with open(chunk_path, "rb") as audio_file:
+                transcript_res = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file
+                )
+                if transcript_res and transcript_res.text:
+                    return transcript_res.text
+        except Exception as e:
+            print(f"[OpenAI Whisper API Note] {e}. Using local Whisper...")
 
     model = load_model()  
-
     result = model.transcribe(chunk_path, task="transcribe")  
     return result["text"]  
 
