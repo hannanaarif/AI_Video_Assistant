@@ -9,14 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy requirements and install dependencies
-COPY requirements.txt .
+# Copy repository source files
+COPY . /app/
+
+# Install dependencies from requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application source code
-COPY . .
-
-# Create necessary runtime directories
+# Create runtime directories
 RUN mkdir -p downloads vector_db
 
 # Expose default port
