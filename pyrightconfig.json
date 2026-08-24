@@ -1,0 +1,8 @@
+{
+  "venvPath": "/Users/personal/Desktop/AI_Video_Assistant",
+  "venv": ".venv",
+  "extraPaths": [
+    "/Users/personal/Desktop/AI_Video_Assistant/.venv/lib/python3.9/site-packages",
+    ".venv/lib/python3.9/site-packages"
+  ]
+}

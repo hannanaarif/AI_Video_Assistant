@@ -1,0 +1,11 @@
+{
+  "name": "ai-video-assistant-root",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node start-dev.js",
+    "start": "node start-dev.js",
+    "clean": "rm -rf downloads/* vector_db/*"
+  }
+}
