@@ -107,19 +107,19 @@
     async function handleAnalyzeVideo(sourceUrl, lang) {
       state.phase = 'PROCESSING';
       state.errorMsg = '';
-      state.processingStep = 'Downloading audio track & converting to WAV...';
+      state.processingStep = 'Downloading audio track & processing transcript...';
       render();
 
       try {
-        // Always attempt calling real API server on localhost:8080
         const res = await fetch(`${API_BASE_URL}/api/analyze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ source: sourceUrl, language: lang })
         });
 
-        if (res.ok) {
-          const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok && !data.error) {
           state.backendConnected = true;
           state.meetingData = {
             title: data.title || `Analysis of ${sourceUrl}`,
@@ -140,12 +140,17 @@
           state.phase = 'DASHBOARD';
           render();
           return;
+        } else if (data.error) {
+          alert(`Server Analysis Error: ${data.error}`);
+          state.phase = 'INITIAL';
+          render();
+          return;
         }
       } catch (e) {
-        console.log("Backend API not reachable. Falling back to dynamic preview mode...", e);
+        console.log("Backend API not reachable.", e);
       }
 
-      // Fallback Dynamic Video Processor (when backend API server is offline)
+      // Fallback Dynamic Video Processor (only when backend is completely offline)
       state.backendConnected = false;
       simulateDynamicAnalysis(sourceUrl, lang);
     }
@@ -161,7 +166,7 @@
       const reader = new FileReader();
       reader.onload = async function(e) {
         const filedata = e.target.result;
-        state.processingStep = `Uploading "${file.name}" to Python server...`;
+        state.processingStep = `Uploading "${file.name}" to server...`;
         render();
 
         try {
@@ -171,8 +176,9 @@
             body: JSON.stringify({ filename: file.name, filedata: filedata, language: lang })
           });
 
-          if (res.ok) {
-            const data = await res.json();
+          const data = await res.json().catch(() => ({}));
+
+          if (res.ok && !data.error) {
             state.backendConnected = true;
             state.meetingData = {
               title: data.title || file.name,
@@ -191,6 +197,11 @@
               citations: []
             }];
             state.phase = 'DASHBOARD';
+            render();
+            return;
+          } else if (data.error) {
+            alert(`Server Upload Error: ${data.error}`);
+            state.phase = 'INITIAL';
             render();
             return;
           }
